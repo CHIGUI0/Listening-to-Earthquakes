@@ -5,8 +5,8 @@ window_sizes=(150000 15000 15000 1500)
 stride_sizes=(150000 15000 7500 1500)
 
 # 模型参数
-# LSTM 参数
-NUM_LAYERS=3
+# MLP 参数
+NUM_LAYERS=1
 HIDDEN_SIZE=100
 DROPOUT=0.5
 
@@ -24,11 +24,11 @@ do
 
   # 构造训练数据文件路径和模型保存路径
   TRAIN_FILE_PATH="datasets/pre_data/train_features_w_${WINDOW_SIZE}_s_${WINDOW_STRIDE}.npz"
-
+  TEST_FILE_PATH="datasets/pre_data/test_features_w_${WINDOW_SIZE}_s_${WINDOW_STRIDE}.npz"
   echo "Experiment：WINDOW_SIZE=${WINDOW_SIZE}, WINDOW_STRIDE=${WINDOW_STRIDE}"
 
   # 执行 Python 脚本
-  python LSTM.py \
+  python MLP.py \
     --train_file_path "$TRAIN_FILE_PATH" \
     --window_size "$WINDOW_SIZE" \
     --window_stride "$WINDOW_STRIDE" \
@@ -38,5 +38,8 @@ do
     --hidden_size "$HIDDEN_SIZE" \
     --num_layers "$NUM_LAYERS" \
     --dropout "$DROPOUT" \
-    --weight_decay "$WEIGHT_DECAY"
+    --weight_decay "$WEIGHT_DECAY" \
+    --test_file_path "$TEST_FILE_PATH" \
+    --test
+
 done

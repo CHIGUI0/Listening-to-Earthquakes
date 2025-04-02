@@ -14,32 +14,30 @@ from tqdm import tqdm
 # 4. 构造 PyTorch Dataset 和 LSTM 模型
 # =============================================================================
 class EarthquakeDataset(Dataset):
-    def __init__(self, features_file, is_train=True, scaler=None):
+    def __init__(self, features_file, is_train=True):
         """
         features_file: 包含 X 和 y（如果是训练数据）的 npz 文件路径
         is_train: True 表示训练数据，False 表示测试数据
-        scaler: 用于标准化特征的 StandardScaler 对象，若为 None，则内部拟合
         """
         data = np.load(features_file, allow_pickle=True)
         self.X = data["X"]  # shape: (n_samples, n_windows, feature_dim)
         self.is_train = is_train
         if is_train:
             self.y = data["y"]  # shape: (n_samples, 1)
-        # 标准化特征：将所有时间步合并拟合
-        n_samples, n_windows, feature_dim = self.X.shape
-        X_2d = self.X.reshape(n_samples * n_windows, feature_dim)
-        if scaler is None:
-            self.scaler = StandardScaler()
-            X_scaled = self.scaler.fit_transform(X_2d)
-        else:
-            self.scaler = scaler
-            X_scaled = self.scaler.transform(X_2d)
-        self.X = X_scaled.reshape(n_samples, n_windows, feature_dim)
+        
+        # # 标准化特征：将所有时间步合并拟合
+        # n_samples, n_windows, feature_dim = self.X.shape
+        # X_2d = self.X.reshape(n_samples * n_windows, feature_dim)
+        # self.scaler = StandardScaler()
+        # X_scaled = self.scaler.fit_transform(X_2d)
+        # self.X = X_scaled.reshape(n_samples, n_windows, feature_dim)        
         # 如有需要，可对标签进行标准化
         # if is_train:
         #     self.label_scaler = StandardScaler()
         #     self.y = self.label_scaler.fit_transform(self.y)
+                
         
+
     def __len__(self):
         return len(self.X)
     
@@ -78,7 +76,7 @@ class LSTMPredictor(nn.Module):
 def train_model(window_size, window_stride, train_file_path, num_epochs=50, batch_size=32, lr=0.001, hidden_size=50, num_layers=1, dropout=0.5, weight_decay=1e-4):
     # 初始化 wandb
     experiment_name = f"w_{window_size}_s_{window_stride}_hidden_{hidden_size}_layers_{num_layers}_epochs_{num_epochs}_batch_{batch_size}_lr_{lr}_dropout_{dropout}"
-    wandb.init(project="earthquake-lstm", 
+    wandb.init(project="earthquake-lstm-mae", 
                 name=experiment_name,
                 config={
                      "window_size": window_size,
@@ -105,7 +103,8 @@ def train_model(window_size, window_stride, train_file_path, num_epochs=50, batc
     input_size = dataset.X.shape[2]  # 特征维度（此处为 11）
     model = LSTMPredictor(input_size=input_size, hidden_size=hidden_size, dropout=dropout, num_layers=num_layers)
     
-    criterion = nn.MSELoss()
+    # 使用 MAE 损失函数
+    criterion = nn.L1Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     
     for epoch in tqdm(range(num_epochs), desc="Training", unit="epoch"):
@@ -132,8 +131,8 @@ def train_model(window_size, window_stride, train_file_path, num_epochs=50, batc
         # 记录 wandb
         wandb.log({"epoch": epoch+1, "train_loss": train_loss, "val_loss": val_loss})
         
-    model_save_path = "models/lstm_" + experiment_name + ".pt"
-    torch.save(model.state_dict(),model_save_path)
+    model_save_path = "models/lstm_mae_" + experiment_name + ".pt"
+    torch.save(model.state_dict(), model_save_path)
     print(f"Model saved as {model_save_path}")
     
     artifact = wandb.Artifact(name=experiment_name, type="model")
@@ -148,7 +147,7 @@ def train_model(window_size, window_stride, train_file_path, num_epochs=50, batc
 # =============================================================================
 # 6. 测试代码
 # =============================================================================
-def test_model(model, test_features_file):
+def test_model(model, test_features_file, test_save_path):
     """
     加载处理好的测试数据，利用训练好的模型进行预测。
     输出每个测试片段的预测值及对应的 seg_id。
@@ -163,9 +162,12 @@ def test_model(model, test_features_file):
     with torch.no_grad():
         outputs = model(X_test)
         predictions = outputs.squeeze().cpu().numpy()
-    
+    # 保存预测结果为csv文件，格式为 seg_id 和预测值
+    predictions_results = []
     for seg_id, pred in zip(seg_ids, predictions):
-        print(f"Segment {seg_id}: predicted time_to_failure = {pred}")
+        predictions_results.append([seg_id, pred])
+    predictions_df = pd.DataFrame(predictions_results, columns=["seg_id", "time_to_failure"])
+    predictions_df.to_csv(test_save_path, index=False)
     return seg_ids, predictions
 
 if __name__ == "__main__":
@@ -180,19 +182,29 @@ if __name__ == "__main__":
     parser.add_argument("--hidden_size", type=int, default=50, help="Size of the hidden layer.")
     parser.add_argument("--dropout", type=float, default=0.5, help="Dropout rate.")
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay (L2 penalty).")
+    parser.add_argument("--test", action="store_true", help="Test the model on test data.")
+    parser.add_argument("--test_file_path", type=str, default="test_features.npz", help="Path to the test features file.")
     
-
     args = parser.parse_args()
 
-    train_model(
-        window_size=args.window_size,
-        window_stride=args.window_stride,
-        train_file_path=args.train_file_path,
-        num_epochs=args.num_epochs,
-        batch_size=args.batch_size,
-        lr=args.lr,
-        hidden_size=args.hidden_size,
-        num_layers=args.num_layers,
-        dropout=args.dropout,
-        weight_decay=args.weight_decay
-    )
+    if not args.test:
+        train_model(
+            window_size=args.window_size,
+            window_stride=args.window_stride,
+            train_file_path=args.train_file_path,
+            num_epochs=args.num_epochs,
+            batch_size=args.batch_size,
+            lr=args.lr,
+            hidden_size=args.hidden_size,
+            num_layers=args.num_layers,
+            dropout=args.dropout,
+            weight_decay=args.weight_decay
+        )
+    else:
+        model = LSTMPredictor(input_size=11, hidden_size=args.hidden_size, num_layers=args.num_layers, dropout=args.dropout)
+        model_save_path = "models/lstm_mae_" + f"w_{args.window_size}_s_{args.window_stride}_hidden_{args.hidden_size}_layers_{args.num_layers}_epochs_{args.num_epochs}_batch_{args.batch_size}_lr_{args.lr}_dropout_{args.dropout}" + ".pt"
+        model.load_state_dict(torch.load(model_save_path))
+        model.eval()
+        
+        test_save_path = "datasets/results/" + f"lstm_mae_test_results_w_{args.window_size}_s_{args.window_stride}_hidden_{args.hidden_size}_layers_{args.num_layers}_epochs_{args.num_epochs}_batch_{args.batch_size}_lr_{args.lr}_dropout_{args.dropout}" + ".csv"
+        test_model(model, args.test_file_path, test_save_path)

@@ -24,6 +24,7 @@ do
 
   # 构造训练数据文件路径和模型保存路径
   TRAIN_FILE_PATH="datasets/pre_data/train_features_w_${WINDOW_SIZE}_s_${WINDOW_STRIDE}.npz"
+  TEST_FILE_PATH="datasets/pre_data/test_features_w_${WINDOW_SIZE}_s_${WINDOW_STRIDE}.npz"
 
   echo "Experiment：WINDOW_SIZE=${WINDOW_SIZE}, WINDOW_STRIDE=${WINDOW_STRIDE}"
 
@@ -38,5 +39,7 @@ do
     --hidden_size "$HIDDEN_SIZE" \
     --num_layers "$NUM_LAYERS" \
     --dropout "$DROPOUT" \
-    --weight_decay "$WEIGHT_DECAY"
+    --weight_decay "$WEIGHT_DECAY" \
+    --test_file_path "$TEST_FILE_PATH" \
+    --test
 done

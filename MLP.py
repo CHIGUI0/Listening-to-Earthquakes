@@ -25,16 +25,17 @@ class EarthquakeDataset(Dataset):
         self.is_train = is_train
         if is_train:
             self.y = data["y"]  # shape: (n_samples, 1)
-        # 标准化特征：将所有时间步合并拟合
-        n_samples, n_windows, feature_dim = self.X.shape
-        X_2d = self.X.reshape(n_samples * n_windows, feature_dim)
-        if scaler is None:
-            self.scaler = StandardScaler()
-            X_scaled = self.scaler.fit_transform(X_2d)
-        else:
-            self.scaler = scaler
-            X_scaled = self.scaler.transform(X_2d)
-        self.X = X_scaled.reshape(n_samples, n_windows, feature_dim)
+
+        # # 标准化特征：将所有时间步合并拟合
+        # n_samples, n_windows, feature_dim = self.X.shape
+        # X_2d = self.X.reshape(n_samples * n_windows, feature_dim)
+        # if scaler is None:
+        #     self.scaler = StandardScaler()
+        #     X_scaled = self.scaler.fit_transform(X_2d)
+        # else:
+        #     self.scaler = scaler
+        #     X_scaled = self.scaler.transform(X_2d)
+        # self.X = X_scaled.reshape(n_samples, n_windows, feature_dim)
         # 如有需要，可对标签进行标准化
         # if is_train:
         #     self.label_scaler = StandardScaler()
@@ -90,7 +91,7 @@ class MLPPredictor(nn.Module):
 def train_model(window_size, window_stride, train_file_path, num_epochs=50, batch_size=32, lr=0.001, hidden_size=50, num_layers=1, dropout=0.5, weight_decay=1e-4):
     # 初始化 wandb，并自定义实验名称
     experiment_name = f"MLP_w_{window_size}_s_{window_stride}_hidden_{hidden_size}_layers_{num_layers}_epochs_{num_epochs}_batch_{batch_size}_lr_{lr}_dropout_{dropout}"
-    wandb.init(project="earthquake-mlp", 
+    wandb.init(project="earthquake-mlp-mae", 
                name=experiment_name,
                config={
                    "window_size": window_size,
@@ -118,7 +119,8 @@ def train_model(window_size, window_stride, train_file_path, num_epochs=50, batc
     n_samples, n_windows, feature_dim = dataset.X.shape
     model = MLPPredictor(n_windows=n_windows, feature_dim=feature_dim, hidden_size=hidden_size, num_layers=num_layers, dropout=dropout)
     
-    criterion = nn.MSELoss()
+    # 使用 MAE 损失函数
+    criterion = nn.L1Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     
     for epoch in tqdm(range(num_epochs), desc="Training", unit="epoch"):
@@ -144,7 +146,7 @@ def train_model(window_size, window_stride, train_file_path, num_epochs=50, batc
         print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
         wandb.log({"epoch": epoch+1, "train_loss": train_loss, "val_loss": val_loss})
         
-    model_save_path = "models/mlp_" + experiment_name + ".pt"
+    model_save_path = "models/mlp_mae_" + experiment_name + ".pt"
     os.makedirs("models", exist_ok=True)
     torch.save(model.state_dict(), model_save_path)
     print(f"Model saved as {model_save_path}")
@@ -159,14 +161,11 @@ def train_model(window_size, window_stride, train_file_path, num_epochs=50, batc
 # =============================================================================
 # 4. 测试代码（与 LSTM 版本相同）
 # =============================================================================
-def test_model(model, test_features_file):
+def test_model(model, test_save_path, X_test, seg_ids):
     """
     加载处理好的测试数据，利用训练好的模型进行预测。
     输出每个测试片段的预测值及对应的 seg_id。
     """
-    test_data = np.load(test_features_file, allow_pickle=True)
-    X_test = test_data["X"]  # shape: (n_samples, n_windows, feature_dim)
-    seg_ids = test_data["seg_ids"]
     
     X_test = torch.tensor(X_test, dtype=torch.float32)
     model.eval()
@@ -174,9 +173,12 @@ def test_model(model, test_features_file):
     with torch.no_grad():
         outputs = model(X_test)
         predictions = outputs.squeeze().cpu().numpy()
-    
+    # 保存预测结果为csv文件，格式为 seg_id 和预测值
+    predictions_results = []
     for seg_id, pred in zip(seg_ids, predictions):
-        print(f"Segment {seg_id}: predicted time_to_failure = {pred}")
+        predictions_results.append([seg_id, pred])
+    predictions_df = pd.DataFrame(predictions_results, columns=["seg_id", "time_to_failure"])
+    predictions_df.to_csv(test_save_path, index=False)
     return seg_ids, predictions
 
 # =============================================================================
@@ -194,18 +196,32 @@ if __name__ == "__main__":
     parser.add_argument("--num_layers", type=int, default=1, help="Number of MLP hidden layers.")
     parser.add_argument("--dropout", type=float, default=0.5, help="Dropout rate.")
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay (L2 penalty).")
-    
+    parser.add_argument("--test", action="store_true", help="Test the model on test data.")
+    parser.add_argument("--test_file_path", type=str, default="test_features.npz", help="Path to the test features file.")
+
+   
     args = parser.parse_args()
     
-    train_model(
-        window_size=args.window_size,
-        window_stride=args.window_stride,
-        train_file_path=args.train_file_path,
-        num_epochs=args.num_epochs,
-        batch_size=args.batch_size,
-        lr=args.lr,
-        hidden_size=args.hidden_size,
-        num_layers=args.num_layers,
-        dropout=args.dropout,
-        weight_decay=args.weight_decay
-    )
+    if not args.test:
+        train_model(
+            window_size=args.window_size,
+            window_stride=args.window_stride,
+            train_file_path=args.train_file_path,
+            num_epochs=args.num_epochs,
+            batch_size=args.batch_size,
+            lr=args.lr,
+            hidden_size=args.hidden_size,
+            num_layers=args.num_layers,
+            dropout=args.dropout,
+            weight_decay=args.weight_decay
+        )
+    else:
+        test_data = np.load(args.test_file_path, allow_pickle=True)
+        X_test = test_data["X"]  # shape: (n_samples, n_windows, feature_dim)
+        seg_ids = test_data["seg_ids"]
+        n_samples, n_windows, feature_dim = X_test.shape
+        model = MLPPredictor(n_windows=n_windows, feature_dim=11, hidden_size=args.hidden_size, num_layers=args.num_layers, dropout=args.dropout)
+        model_save_path = "models/mlp_mae_MLP_" + f"w_{args.window_size}_s_{args.window_stride}_hidden_{args.hidden_size}_layers_{args.num_layers}_epochs_{args.num_epochs}_batch_{args.batch_size}_lr_{args.lr}_dropout_{args.dropout}" + ".pt"
+        model.load_state_dict(torch.load(model_save_path))
+        test_save_path = "datasets/results/" + f"mlp_mae_test_results_w_{args.window_size}_s_{args.window_stride}_hidden_{args.hidden_size}_layers_{args.num_layers}_epochs_{args.num_epochs}_batch_{args.batch_size}_lr_{args.lr}_dropout_{args.dropout}" + ".csv"
+        test_model(model, test_save_path=test_save_path, X_test=X_test, seg_ids=seg_ids)
