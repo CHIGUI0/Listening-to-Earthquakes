@@ -26,7 +26,7 @@ class EarthquakeDataset(Dataset):
         if is_train:
             self.y = data["y"]  # shape: (n_samples, 1)
 
-        # # 标准化特征：将所有时间步合并拟合
+        # 如有需要，可添加特征标准化的代码
         # n_samples, n_windows, feature_dim = self.X.shape
         # X_2d = self.X.reshape(n_samples * n_windows, feature_dim)
         # if scaler is None:
@@ -36,7 +36,6 @@ class EarthquakeDataset(Dataset):
         #     self.scaler = scaler
         #     X_scaled = self.scaler.transform(X_2d)
         # self.X = X_scaled.reshape(n_samples, n_windows, feature_dim)
-        # 如有需要，可对标签进行标准化
         # if is_train:
         #     self.label_scaler = StandardScaler()
         #     self.y = self.label_scaler.fit_transform(self.y)
@@ -58,8 +57,8 @@ class EarthquakeDataset(Dataset):
 class MLPPredictor(nn.Module):
     def __init__(self, n_windows, feature_dim, hidden_size, num_layers, dropout=0.5):
         """
-        n_windows: 每个样本的窗口数（例如：训练时提取特征时，每个样本包含 n_windows 个窗口）
-        feature_dim: 每个窗口的特征维度（例如：11）
+        n_windows: 每个样本的窗口数
+        feature_dim: 每个窗口的特征维度
         hidden_size: 隐藏层大小
         num_layers: 全连接隐藏层数（至少为 1）
         dropout: dropout 比例，用于防止过拟合
@@ -119,6 +118,11 @@ def train_model(window_size, window_stride, train_file_path, num_epochs=50, batc
     n_samples, n_windows, feature_dim = dataset.X.shape
     model = MLPPredictor(n_windows=n_windows, feature_dim=feature_dim, hidden_size=hidden_size, num_layers=num_layers, dropout=dropout)
     
+    # 检测 GPU 可用性
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    print(f"Using device: {device}")
+    
     # 使用 MAE 损失函数
     criterion = nn.L1Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -127,6 +131,7 @@ def train_model(window_size, window_stride, train_file_path, num_epochs=50, batc
         model.train()
         train_losses = []
         for X_batch, y_batch in train_loader:
+            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
             optimizer.zero_grad()
             outputs = model(X_batch)
             loss = criterion(outputs, y_batch)
@@ -138,6 +143,7 @@ def train_model(window_size, window_stride, train_file_path, num_epochs=50, batc
         val_losses = []
         with torch.no_grad():
             for X_batch, y_batch in val_loader:
+                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
                 outputs = model(X_batch)
                 loss = criterion(outputs, y_batch)
                 val_losses.append(loss.item())
@@ -166,14 +172,16 @@ def test_model(model, test_save_path, X_test, seg_ids):
     加载处理好的测试数据，利用训练好的模型进行预测。
     输出每个测试片段的预测值及对应的 seg_id。
     """
+    # 检测 GPU 可用性
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
     
-    X_test = torch.tensor(X_test, dtype=torch.float32)
+    X_test = torch.tensor(X_test, dtype=torch.float32).to(device)
     model.eval()
-    predictions = []
     with torch.no_grad():
         outputs = model(X_test)
         predictions = outputs.squeeze().cpu().numpy()
-    # 保存预测结果为csv文件，格式为 seg_id 和预测值
+    # 保存预测结果为 csv 文件
     predictions_results = []
     for seg_id, pred in zip(seg_ids, predictions):
         predictions_results.append([seg_id, pred])
@@ -198,7 +206,6 @@ if __name__ == "__main__":
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay (L2 penalty).")
     parser.add_argument("--test", action="store_true", help="Test the model on test data.")
     parser.add_argument("--test_file_path", type=str, default="test_features.npz", help="Path to the test features file.")
-
    
     args = parser.parse_args()
     
@@ -220,7 +227,7 @@ if __name__ == "__main__":
         X_test = test_data["X"]  # shape: (n_samples, n_windows, feature_dim)
         seg_ids = test_data["seg_ids"]
         n_samples, n_windows, feature_dim = X_test.shape
-        model = MLPPredictor(n_windows=n_windows, feature_dim=11, hidden_size=args.hidden_size, num_layers=args.num_layers, dropout=args.dropout)
+        model = MLPPredictor(n_windows=n_windows, feature_dim=feature_dim, hidden_size=args.hidden_size, num_layers=args.num_layers, dropout=args.dropout)
         model_save_path = "models/mlp_mae_MLP_" + f"w_{args.window_size}_s_{args.window_stride}_hidden_{args.hidden_size}_layers_{args.num_layers}_epochs_{args.num_epochs}_batch_{args.batch_size}_lr_{args.lr}_dropout_{args.dropout}" + ".pt"
         model.load_state_dict(torch.load(model_save_path))
         test_save_path = "datasets/results/" + f"mlp_mae_test_results_w_{args.window_size}_s_{args.window_stride}_hidden_{args.hidden_size}_layers_{args.num_layers}_epochs_{args.num_epochs}_batch_{args.batch_size}_lr_{args.lr}_dropout_{args.dropout}" + ".csv"
