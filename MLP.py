@@ -220,7 +220,7 @@ if __name__ == "__main__":
         X_test = test_data["X"]  # shape: (n_samples, n_windows, feature_dim)
         seg_ids = test_data["seg_ids"]
         n_samples, n_windows, feature_dim = X_test.shape
-        model = MLPPredictor(n_windows=n_windows, feature_dim=11, hidden_size=args.hidden_size, num_layers=args.num_layers, dropout=args.dropout)
+        model = MLPPredictor(n_windows=n_windows, feature_dim=12, hidden_size=args.hidden_size, num_layers=args.num_layers, dropout=args.dropout)
         model_save_path = "models/mlp_mae_MLP_" + f"w_{args.window_size}_s_{args.window_stride}_hidden_{args.hidden_size}_layers_{args.num_layers}_epochs_{args.num_epochs}_batch_{args.batch_size}_lr_{args.lr}_dropout_{args.dropout}" + ".pt"
         model.load_state_dict(torch.load(model_save_path))
         test_save_path = "datasets/results/" + f"mlp_mae_test_results_w_{args.window_size}_s_{args.window_stride}_hidden_{args.hidden_size}_layers_{args.num_layers}_epochs_{args.num_epochs}_batch_{args.batch_size}_lr_{args.lr}_dropout_{args.dropout}" + ".csv"

@@ -201,7 +201,7 @@ if __name__ == "__main__":
             weight_decay=args.weight_decay
         )
     else:
-        model = LSTMPredictor(input_size=11, hidden_size=args.hidden_size, num_layers=args.num_layers, dropout=args.dropout)
+        model = LSTMPredictor(input_size=12, hidden_size=args.hidden_size, num_layers=args.num_layers, dropout=args.dropout)
         model_save_path = "models/lstm_mae_" + f"w_{args.window_size}_s_{args.window_stride}_hidden_{args.hidden_size}_layers_{args.num_layers}_epochs_{args.num_epochs}_batch_{args.batch_size}_lr_{args.lr}_dropout_{args.dropout}" + ".pt"
         model.load_state_dict(torch.load(model_save_path))
         model.eval()
