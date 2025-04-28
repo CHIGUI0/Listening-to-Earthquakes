@@ -24,19 +24,6 @@ class EarthquakeDataset(Dataset):
         self.is_train = is_train
         if is_train:
             self.y = data["y"]  # shape: (n_samples, 1)
-        
-        # # 标准化特征：将所有时间步合并拟合
-        # n_samples, n_windows, feature_dim = self.X.shape
-        # X_2d = self.X.reshape(n_samples * n_windows, feature_dim)
-        # self.scaler = StandardScaler()
-        # X_scaled = self.scaler.fit_transform(X_2d)
-        # self.X = X_scaled.reshape(n_samples, n_windows, feature_dim)        
-        # 如有需要，可对标签进行标准化
-        # if is_train:
-        #     self.label_scaler = StandardScaler()
-        #     self.y = self.label_scaler.fit_transform(self.y)
-                
-        
 
     def __len__(self):
         return len(self.X)
@@ -103,6 +90,11 @@ def train_model(window_size, window_stride, train_file_path, num_epochs=50, batc
     input_size = dataset.X.shape[2]  # 特征维度（此处为 11）
     model = LSTMPredictor(input_size=input_size, hidden_size=hidden_size, dropout=dropout, num_layers=num_layers)
     
+    # 检测是否有GPU可用
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    print(f"Using device: {device}")
+    
     # 使用 MAE 损失函数
     criterion = nn.L1Loss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
@@ -111,6 +103,7 @@ def train_model(window_size, window_stride, train_file_path, num_epochs=50, batc
         model.train()
         train_losses = []
         for X_batch, y_batch in train_loader:
+            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
             optimizer.zero_grad()
             outputs = model(X_batch)
             loss = criterion(outputs, y_batch)
@@ -122,6 +115,7 @@ def train_model(window_size, window_stride, train_file_path, num_epochs=50, batc
         val_losses = []
         with torch.no_grad():
             for X_batch, y_batch in val_loader:
+                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
                 outputs = model(X_batch)
                 loss = criterion(outputs, y_batch)
                 val_losses.append(loss.item())
@@ -156,9 +150,12 @@ def test_model(model, test_features_file, test_save_path):
     X_test = test_data["X"]  # shape: (n_samples, n_windows, feature_dim)
     seg_ids = test_data["seg_ids"]
     
-    X_test = torch.tensor(X_test, dtype=torch.float32)
+    # 检测是否有GPU可用
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    
+    X_test = torch.tensor(X_test, dtype=torch.float32).to(device)
     model.eval()
-    predictions = []
     with torch.no_grad():
         outputs = model(X_test)
         predictions = outputs.squeeze().cpu().numpy()
