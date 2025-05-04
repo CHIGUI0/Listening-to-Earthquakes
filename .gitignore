@@ -2,4 +2,9 @@ Tools.ipynb
 datasets
 wandb
 models
+<<<<<<< HEAD
 old_models
+=======
+old_models
+kaggle.json
+>>>>>>> 651404d9e3f0f093219bfa71c06de997874fc09f

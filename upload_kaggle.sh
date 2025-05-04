@@ -1,9 +1,12 @@
 #!/bin/bash
 
+export KAGGLE_CONFIG_DIR=./kaggle
+
+MODEL_NAME="lstm"
 # 定义参数数组
 layers=(1 2 3)
-window_sizes=(150000 15000 15000 1500)
-stride_sizes=(150000 15000 7500 1500)
+window_sizes=(150000 15000 15000 1500 1500)
+stride_sizes=(150000 15000 7500 1500 750)
 
 # 外层循环：遍历不同的 layers
 for layer in "${layers[@]}"; do
@@ -13,7 +16,7 @@ for layer in "${layers[@]}"; do
     stride=${stride_sizes[$i]}
     
     # 根据参数构造文件名，这里的文件名格式请根据你的实际情况修改
-    file="datasets/results/mlp_mae_test_results_w_${window}_s_${stride}_hidden_100_layers_${layer}_epochs_100_batch_32_lr_0.001_dropout_0.5.csv"
+    file="datasets/results/${MODEL_NAME}_mae_test_results_w_${window}_s_${stride}_hidden_100_layers_${layer}_epochs_100_batch_32_lr_0.001_dropout_0.5.csv"
     
     # 构造提交时的信息
     message="layers=${layer}, window=${window}, stride=${stride}"
